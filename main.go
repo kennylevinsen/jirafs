@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"time"
 
 	"github.com/andygrunwald/go-jira"
 	"github.com/howeyc/gopass"
@@ -33,11 +34,21 @@ func main() {
 	}
 	password = string(pass)
 
-	res, err := jiraClient.Authentication.AcquireSessionCookie(user, password)
-	if err != nil || res == false {
-		fmt.Printf("Could not authenticate to JIRA: %v\n", err)
-		return
+	auth := func() {
+		res, err := jiraClient.Authentication.AcquireSessionCookie(user, password)
+		if err != nil || res == false {
+			fmt.Printf("Could not authenticate to JIRA: %v\n", err)
+			return
+		}
 	}
+	auth()
+
+	go func() {
+		t := time.NewTicker(5 * time.Minute)
+		for range t.C {
+			auth()
+		}
+	}()
 
 	root, err := NewJiraDir("", 0555|qp.DMDIR, "jira", "jira", jiraClient, &JiraView{})
 	if err != nil {
