@@ -228,7 +228,9 @@ func SetFieldInIssue(jc *jira.Client, issue, field, val string) error {
 }
 
 type CommentResult struct {
-	Comments []jira.Comment `json:"comments,omitempty"`
+	Comments []struct {
+		ID string `json:"id"`
+	} `json:"comments,omitempty"`
 }
 
 func GetCommentsForIssue(jc *jira.Client, issue string) ([]string, error) {

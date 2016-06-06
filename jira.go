@@ -274,13 +274,59 @@ func (iw *IssueView) normalWalk(jc *jira.Client, file string) (trees.File, error
 		switch file {
 		case "key":
 			return nil
-		case "status", "transitions":
+		case "transitions":
 			sf.Lock()
 			str := string(sf.Content)
 			sf.Unlock()
 			str = strings.Replace(str, "\n", "", -1)
 
 			return TransitionIssue(jc, issue.Key, str)
+
+		case "status":
+			sf.Lock()
+			str := string(sf.Content)
+			sf.Unlock()
+			str = strings.Replace(str, "\n", "", -1)
+
+			issue, err := GetIssue(jc, fmt.Sprintf("%s-%s", iw.project, iw.issueNo))
+			if err != nil {
+				log.Printf("Could not fetch issue: %v", err)
+				return err
+			}
+			if issue.Fields == nil {
+				log.Printf("Issue missing fields")
+				return errors.New("oops")
+			}
+			if issue.Fields.Status == nil {
+				log.Printf("Issue missing status")
+				return errors.New("oops2")
+			}
+
+			wg, err := BuildWorkflow2(jc, iw.project, issue.Fields.Type.ID)
+			if err != nil {
+				log.Printf("Could not build workflow: %v", err)
+				return err
+			}
+
+			p, err := wg.Path(issue.Fields.Status.Name, str, 10000)
+			if err != nil {
+				log.Printf("Could not find path: %v", err)
+				log.Printf("Workflow: \n%s\n", wg.Dump())
+				return err
+			}
+
+			log.Printf("Workflow path: %s", strings.Join(p, ", "))
+
+			for _, s := range p {
+				err = TransitionIssue(jc, issue.Key, s)
+				if err != nil {
+					log.Printf("Could not transition issue: %v", err)
+					return err
+				}
+			}
+
+			return nil
+
 		default:
 			sf.Lock()
 			str := string(sf.Content)
