@@ -3,8 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log"
-	"net/http/httputil"
 	"strings"
 	"time"
 
@@ -198,13 +196,13 @@ func SetFieldInIssue(jc *jira.Client, issue, field, val string) error {
 	case "labels":
 		var labels []string
 		if val != "" && val != "\n" {
-			labels := strings.Split(val, "\n")
+			labels = strings.Split(val, "\n")
 			if labels[len(labels)-1] == "" {
 				labels = labels[:len(labels)-1]
 			}
 		}
 		fields[field] = labels
-	case "issuetype", "assignee", "reporter", "creator":
+	case "issuetype", "assignee", "reporter", "creator", "priority", "resolution":
 		fields[field] = map[string]interface{}{
 			"name": value,
 		}
@@ -214,10 +212,6 @@ func SetFieldInIssue(jc *jira.Client, issue, field, val string) error {
 	req, err := jc.NewRequest(method, cmd, post)
 	if err != nil {
 		return fmt.Errorf("could not query JIRA: %v", err)
-	}
-
-	if b, err := httputil.DumpRequestOut(req, true); err == nil {
-		log.Printf("SetFieldInIssue body: \n%s\n", b)
 	}
 
 	if _, err = jc.Do(req, nil); err != nil {

@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/andygrunwald/go-jira"
 	"github.com/joushou/qp"
@@ -96,7 +98,7 @@ type IssueView struct {
 }
 
 func (iw *IssueView) normalFiles() (files, dirs []string) {
-	files = []string{"assignee", "creator", "ctl", "description", "issuetype", "key", "reporter", "status", "summary", "labels", "transitions"}
+	files = []string{"assignee", "creator", "ctl", "description", "issuetype", "key", "reporter", "status", "summary", "labels", "transitions", "priority", "resolution", "raw", "progress"}
 	dirs = []string{"comments"}
 	return
 }
@@ -231,6 +233,21 @@ func (iw *IssueView) normalWalk(jc *jira.Client, file string) (trees.File, error
 		if issue.Fields != nil && issue.Fields.Status != nil {
 			sf.SetContent([]byte(issue.Fields.Status.Name + "\n"))
 		}
+	case "priority":
+		if issue.Fields != nil && issue.Fields.Priority != nil {
+			sf.SetContent([]byte(issue.Fields.Priority.Name + "\n"))
+		}
+	case "resolution":
+		if issue.Fields != nil && issue.Fields.Resolution != nil {
+			sf.SetContent([]byte(issue.Fields.Resolution.Name + "\n"))
+		}
+	case "progress":
+		if issue.Fields != nil && issue.Fields.Progress != nil {
+			p := time.Duration(issue.Fields.Progress.Progress) * time.Second
+			t := time.Duration(issue.Fields.Progress.Total) * time.Second
+			percent := int((1 - float64(issue.Fields.Progress.Total-issue.Fields.Progress.Progress)/float64(issue.Fields.Progress.Total)) * 100)
+			sf.SetContent([]byte(fmt.Sprintf("Progress: %v, Total: %v, Percent: %d%%\n", p, t, percent)))
+		}
 	case "key":
 		sf.SetContent([]byte(issue.Key + "\n"))
 	case "labels":
@@ -260,6 +277,12 @@ func (iw *IssueView) normalWalk(jc *jira.Client, file string) (trees.File, error
 			"jira",
 			jc,
 			&CommentView{project: iw.project, issueNo: iw.issueNo})
+	case "raw":
+		b, err := json.MarshalIndent(issue, "", "   ")
+		if err != nil {
+			return nil, err
+		}
+		sf.SetContent(b)
 	case "ctl":
 		cmds := map[string]func([]string) error{
 			"delete": func(args []string) error {
@@ -272,7 +295,7 @@ func (iw *IssueView) normalWalk(jc *jira.Client, file string) (trees.File, error
 
 	onClose := func() error {
 		switch file {
-		case "key":
+		case "key", "raw":
 			return nil
 		case "transitions":
 			sf.Lock()
@@ -308,7 +331,7 @@ func (iw *IssueView) normalWalk(jc *jira.Client, file string) (trees.File, error
 				return err
 			}
 
-			p, err := wg.Path(issue.Fields.Status.Name, str, 10000)
+			p, err := wg.Path(issue.Fields.Status.Name, str, 500)
 			if err != nil {
 				log.Printf("Could not find path: %v", err)
 				log.Printf("Workflow: \n%s\n", wg.Dump())

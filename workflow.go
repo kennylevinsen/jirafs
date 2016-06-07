@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/andygrunwald/go-jira"
 )
@@ -140,6 +141,7 @@ type StatusEdge struct {
 }
 
 type WorkflowGraph struct {
+	// verteces is a map of lower-cased status named to their status struct.
 	verteces map[string]*Status
 }
 
@@ -158,7 +160,7 @@ func (wg *WorkflowGraph) Build2(wr *WorkflowResponse2) {
 			ID:          s.ID,
 		}
 
-		wg.verteces[s.Name] = l
+		wg.verteces[strings.ToLower(s.Name)] = l
 		local[s.TransitionID] = l
 	}
 
@@ -184,19 +186,19 @@ func (wg *WorkflowGraph) Build1(wr *WorkflowResponse1) {
 		wg.verteces = make(map[string]*Status)
 	}
 	for _, elem := range wr.Sources {
-		name := elem.FromStatus.Name
+		name := strings.ToLower(elem.FromStatus.Name)
 		fromStatus, exists := wg.verteces[name]
 		if !exists {
 			fromStatus = elem.FromStatus.Status()
-			wg.verteces[fromStatus.Name] = fromStatus
+			wg.verteces[name] = fromStatus
 		}
 
 		for _, target := range elem.Targets {
-			targetName := target.ToStatus.Name
+			targetName := strings.ToLower(target.ToStatus.Name)
 			targetStatus, exists := wg.verteces[targetName]
 			if !exists {
 				targetStatus = target.ToStatus.Status()
-				wg.verteces[targetStatus.Name] = targetStatus
+				wg.verteces[name] = targetStatus
 			}
 			targetEdge := StatusEdge{
 				Name:   target.TransitionName,
@@ -226,13 +228,20 @@ type path struct {
 	edge StatusEdge
 }
 
+// Path finds the shortest path in the workflow graph from A to B, searching at
+// most limit verteces. A negative limit results in path executing without a
+// limit. Cycles are detected and terminated, so the limit is just to avoid high
+// searching times in *very* large graphs. A and B are case insensitive for
+// convenience.
 func (wg *WorkflowGraph) Path(A, B string, limit int) ([]string, error) {
-	statusA := wg.verteces[A]
-	statusB := wg.verteces[B]
+	statusA := wg.verteces[strings.ToLower(A)]
+	statusB := wg.verteces[strings.ToLower(B)]
 
 	if statusA == nil || statusB == nil {
 		return nil, errors.New("no such status")
 	}
+
+	visited := make(map[string]bool)
 
 	var search []path
 	for _, edge := range statusA.Edges {
@@ -253,24 +262,24 @@ func (wg *WorkflowGraph) Path(A, B string, limit int) ([]string, error) {
 			start := &p
 
 			for {
-				s = append(s, start.edge.Name)
+				s = append([]string{start.edge.Name}, s...)
 				if start.from == nil {
 					break
 				}
 
 				start = start.from
 			}
-
-			for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
-				s[i], s[j] = s[j], s[i]
-			}
-
 			return s, nil
 		}
 
+		if visited[p.edge.Status.ID] {
+			// We have already walked all edges of this vertice.
+			continue
+		}
+		visited[p.edge.Status.ID] = true
+
 		// Add the edges to the search.
 		for _, edge := range p.edge.Status.Edges {
-			// log.Printf("%s -> %s", p.edge.Status.Name, edge.Name)
 			search = append(search, path{from: &p, edge: edge})
 		}
 	}
