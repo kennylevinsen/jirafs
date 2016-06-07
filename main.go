@@ -21,34 +21,35 @@ func main() {
 
 	var user, password string
 	fmt.Printf("Username: ")
-	_, err = fmt.Scan(&user)
-	if err != nil {
-		fmt.Printf("Could not read username: %v", err)
-		return
-	}
-	fmt.Printf("Password: ")
-	pass, err := gopass.GetPasswdMasked()
-	if err != nil {
-		fmt.Printf("Could not read password: %v", err)
-		return
-	}
-	password = string(pass)
+	_, err = fmt.Scanln(&user)
+	if err == nil {
 
-	auth := func() {
-		res, err := jiraClient.Authentication.AcquireSessionCookie(user, password)
-		if err != nil || res == false {
-			fmt.Printf("Could not authenticate to JIRA: %v\n", err)
+		fmt.Printf("Password: ")
+		pass, err := gopass.GetPasswdMasked()
+		if err != nil {
+			fmt.Printf("Could not read password: %v", err)
 			return
 		}
-	}
-	auth()
+		password = string(pass)
 
-	go func() {
-		t := time.NewTicker(5 * time.Minute)
-		for range t.C {
-			auth()
+		auth := func() {
+			res, err := jiraClient.Authentication.AcquireSessionCookie(user, password)
+			if err != nil || res == false {
+				fmt.Printf("Could not authenticate to JIRA: %v\n", err)
+				return
+			}
 		}
-	}()
+		auth()
+
+		go func() {
+			t := time.NewTicker(5 * time.Minute)
+			for range t.C {
+				auth()
+			}
+		}()
+	} else {
+		fmt.Printf("Continuing without authentication.\n")
+	}
 
 	root, err := NewJiraDir("", 0555|qp.DMDIR, "jira", "jira", jiraClient, &JiraView{})
 	if err != nil {

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -48,8 +49,29 @@ func GetTypesForProject(jc *jira.Client, project string) ([]string, error) {
 	return ss, nil
 }
 
-func GetKeysForNIssues(jc *jira.Client, project string, n int) ([]string, error) {
-	cmd := fmt.Sprintf("/rest/api/2/search?fields=key&maxResults=%d&jql=project=%s", n, project)
+func GetKeysForSearch(jc *jira.Client, query string, max int) ([]string, error) {
+	cmd := fmt.Sprintf("/rest/api/2/search?fields=key&maxResults=%d&jql=%s", max, url.QueryEscape(query))
+
+	req, err := jc.NewRequest("GET", cmd, nil)
+	if err != nil {
+		return nil, fmt.Errorf("could not query JIRA: %v", err)
+	}
+
+	var s SearchResult
+	if _, err := jc.Do(req, &s); err != nil {
+		return nil, fmt.Errorf("could not query JIRA: %v", err)
+	}
+
+	ss := make([]string, len(s.Issues))
+	for i, issue := range s.Issues {
+		ss[i] = issue.Key
+	}
+
+	return ss, nil
+}
+
+func GetKeysForNIssues(jc *jira.Client, project string, max int) ([]string, error) {
+	cmd := fmt.Sprintf("/rest/api/2/search?fields=key&maxResults=%d&jql=project=%s", max, project)
 
 	req, err := jc.NewRequest("GET", cmd, nil)
 	if err != nil {
@@ -177,6 +199,11 @@ func TransitionIssue(jc *jira.Client, issue, transition string) error {
 }
 
 func SetFieldInIssue(jc *jira.Client, issue, field, val string) error {
+	switch field {
+	case "type":
+		field = "issuetype"
+	}
+
 	cmd := fmt.Sprintf("/rest/api/2/issue/%s", issue)
 	method := "PUT"
 
@@ -222,9 +249,7 @@ func SetFieldInIssue(jc *jira.Client, issue, field, val string) error {
 }
 
 type CommentResult struct {
-	Comments []struct {
-		ID string `json:"id"`
-	} `json:"comments,omitempty"`
+	Comments []jira.Comment `json:"comments,omitempty"`
 }
 
 func GetCommentsForIssue(jc *jira.Client, issue string) ([]string, error) {
@@ -497,7 +522,7 @@ func (jd *JiraDir) Open(user string, mode qp.OpenMode) (trees.ReadWriteAtCloser,
 
 func NewJiraDir(name string, perm qp.FileMode, user, group string, jc *jira.Client, thing interface{}) (*JiraDir, error) {
 	switch thing.(type) {
-	case trees.File, jiraWalker, jiraLister, jiraRemover:
+	case trees.Dir, jiraWalker, jiraLister, jiraRemover:
 	default:
 		return nil, fmt.Errorf("unsupported type: %T", thing)
 	}
