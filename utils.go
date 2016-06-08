@@ -1,8 +1,18 @@
 package main
 
 import (
+	"bytes"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"strings"
 	"time"
@@ -10,13 +20,14 @@ import (
 	"github.com/andygrunwald/go-jira"
 	"github.com/joushou/qp"
 	"github.com/joushou/qptools/fileserver/trees"
+	"github.com/mrjones/oauth"
 )
 
 type SearchResult struct {
 	Issues []jira.Issue `json:"issues"`
 }
 
-func GetProjects(jc *jira.Client) ([]jira.Project, error) {
+func GetProjects(jc *Client) ([]jira.Project, error) {
 	req, err := jc.NewRequest("GET", "/rest/api/2/project", nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not query JIRA: %v", err)
@@ -30,7 +41,7 @@ func GetProjects(jc *jira.Client) ([]jira.Project, error) {
 	return projects, nil
 }
 
-func GetTypesForProject(jc *jira.Client, project string) ([]string, error) {
+func GetTypesForProject(jc *Client, project string) ([]string, error) {
 	req, err := jc.NewRequest("GET", "/rest/api/2/issuetype", nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not query JIRA: %v", err)
@@ -49,7 +60,7 @@ func GetTypesForProject(jc *jira.Client, project string) ([]string, error) {
 	return ss, nil
 }
 
-func GetKeysForSearch(jc *jira.Client, query string, max int) ([]string, error) {
+func GetKeysForSearch(jc *Client, query string, max int) ([]string, error) {
 	cmd := fmt.Sprintf("/rest/api/2/search?fields=key&maxResults=%d&jql=%s", max, url.QueryEscape(query))
 
 	req, err := jc.NewRequest("GET", cmd, nil)
@@ -70,7 +81,7 @@ func GetKeysForSearch(jc *jira.Client, query string, max int) ([]string, error) 
 	return ss, nil
 }
 
-func GetKeysForNIssues(jc *jira.Client, project string, max int) ([]string, error) {
+func GetKeysForNIssues(jc *Client, project string, max int) ([]string, error) {
 	cmd := fmt.Sprintf("/rest/api/2/search?fields=key&maxResults=%d&jql=project=%s", max, project)
 
 	req, err := jc.NewRequest("GET", cmd, nil)
@@ -95,7 +106,7 @@ func GetKeysForNIssues(jc *jira.Client, project string, max int) ([]string, erro
 	return ss, nil
 }
 
-func GetIssue(jc *jira.Client, key string) (*jira.Issue, error) {
+func GetIssue(jc *Client, key string) (*jira.Issue, error) {
 	req, err := jc.NewRequest("GET", fmt.Sprintf("/rest/api/2/issue/%s", key), nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not query JIRA: %v", err)
@@ -113,7 +124,7 @@ type CreateIssueResult struct {
 	Key string `json:"key,omitempty"`
 }
 
-func CreateIssue(jc *jira.Client, issue *jira.Issue) (string, error) {
+func CreateIssue(jc *Client, issue *jira.Issue) (string, error) {
 	req, err := jc.NewRequest("POST", "/rest/api/2/issue", issue)
 	if err != nil {
 		return "", fmt.Errorf("could not query JIRA: %v", err)
@@ -126,8 +137,44 @@ func CreateIssue(jc *jira.Client, issue *jira.Issue) (string, error) {
 	return cir.Key, nil
 }
 
-func DeleteIssue(jc *jira.Client, issue string) error {
+func DeleteIssue(jc *Client, issue string) error {
 	req, err := jc.NewRequest("DELETE", fmt.Sprintf("/rest/api/2/issue/%s", issue), nil)
+	if err != nil {
+		return fmt.Errorf("could not query JIRA: %v", err)
+	}
+
+	if _, err = jc.Do(req, nil); err != nil {
+		return fmt.Errorf("could not query JIRA: %v", err)
+	}
+	return nil
+}
+
+func DeleteIssueLink(jc *Client, issueLinkID string) error {
+	req, err := jc.NewRequest("DELETE", fmt.Sprintf("/rest/api/2/issueLink/%s", issueLinkID), nil)
+	if err != nil {
+		return fmt.Errorf("could not query JIRA: %v", err)
+	}
+
+	if _, err = jc.Do(req, nil); err != nil {
+		return fmt.Errorf("could not query JIRA: %v", err)
+	}
+	return nil
+}
+
+func LinkIssues(jc *Client, inwardKey, outwardKey, relation string) error {
+	issueLink := &jira.IssueLink{
+		Type: jira.IssueLinkType{
+			Name: relation,
+		},
+		InwardIssue: &jira.Issue{
+			Key: inwardKey,
+		},
+		OutwardIssue: &jira.Issue{
+			Key: outwardKey,
+		},
+	}
+
+	req, err := jc.NewRequest("POST", "/rest/api/2/issueLink", issueLink)
 	if err != nil {
 		return fmt.Errorf("could not query JIRA: %v", err)
 	}
@@ -148,7 +195,7 @@ type TransitionResult struct {
 	Transitions []Transition `json:"transitions,omitempty"`
 }
 
-func GetTransitionsForIssue(jc *jira.Client, issue string) ([]Transition, error) {
+func GetTransitionsForIssue(jc *Client, issue string) ([]Transition, error) {
 	req, err := jc.NewRequest("GET", fmt.Sprintf("/rest/api/2/issue/%s/transitions", issue), nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not query JIRA: %v", err)
@@ -162,7 +209,7 @@ func GetTransitionsForIssue(jc *jira.Client, issue string) ([]Transition, error)
 	return tr.Transitions, nil
 }
 
-func TransitionIssue(jc *jira.Client, issue, transition string) error {
+func TransitionIssue(jc *Client, issue, transition string) error {
 	transition = strings.Replace(transition, "\n", "", -1)
 	transitions, err := GetTransitionsForIssue(jc, issue)
 	if err != nil {
@@ -198,7 +245,7 @@ func TransitionIssue(jc *jira.Client, issue, transition string) error {
 	return nil
 }
 
-func SetFieldInIssue(jc *jira.Client, issue, field, val string) error {
+func SetFieldInIssue(jc *Client, issue, field, val string) error {
 	switch field {
 	case "type":
 		field = "issuetype"
@@ -229,6 +276,19 @@ func SetFieldInIssue(jc *jira.Client, issue, field, val string) error {
 			}
 		}
 		fields[field] = labels
+	case "components":
+		componentThing := []map[string]string{}
+		components := strings.Split(val, "\n")
+		for _, s := range components {
+			if s == "" || s == "\n" {
+				continue
+			}
+			thing := map[string]string{
+				"name": s,
+			}
+			componentThing = append(componentThing, thing)
+		}
+		fields[field] = componentThing
 	case "issuetype", "assignee", "reporter", "creator", "priority", "resolution":
 		fields[field] = map[string]interface{}{
 			"name": value,
@@ -241,6 +301,9 @@ func SetFieldInIssue(jc *jira.Client, issue, field, val string) error {
 		return fmt.Errorf("could not query JIRA: %v", err)
 	}
 
+	b, _ := httputil.DumpRequestOut(req, true)
+	log.Printf("Set field body: \n%s\n", b)
+
 	if _, err = jc.Do(req, nil); err != nil {
 		return fmt.Errorf("could not query JIRA: %v", err)
 	}
@@ -252,7 +315,7 @@ type CommentResult struct {
 	Comments []jira.Comment `json:"comments,omitempty"`
 }
 
-func GetCommentsForIssue(jc *jira.Client, issue string) ([]string, error) {
+func GetCommentsForIssue(jc *Client, issue string) ([]string, error) {
 	req, err := jc.NewRequest("GET", fmt.Sprintf("/rest/api/2/issue/%s/comment?maxResults=1000", issue), nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not query JIRA: %v", err)
@@ -271,7 +334,7 @@ func GetCommentsForIssue(jc *jira.Client, issue string) ([]string, error) {
 	return ss, nil
 }
 
-func GetComment(jc *jira.Client, issue, id string) (*jira.Comment, error) {
+func GetComment(jc *Client, issue, id string) (*jira.Comment, error) {
 	req, err := jc.NewRequest("GET", fmt.Sprintf("/rest/api/2/issue/%s/comment/%s", issue, id), nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not query JIRA: %v", err)
@@ -285,7 +348,7 @@ func GetComment(jc *jira.Client, issue, id string) (*jira.Comment, error) {
 	return &c, nil
 }
 
-func SetComment(jc *jira.Client, issue, id, body string) error {
+func SetComment(jc *Client, issue, id, body string) error {
 	c := jira.Comment{
 		Body: body,
 	}
@@ -302,7 +365,7 @@ func SetComment(jc *jira.Client, issue, id, body string) error {
 	return nil
 }
 
-func AddComment(jc *jira.Client, issue, body string) error {
+func AddComment(jc *Client, issue, body string) error {
 	c := jira.Comment{
 		Body: body,
 	}
@@ -319,7 +382,7 @@ func AddComment(jc *jira.Client, issue, body string) error {
 	return nil
 }
 
-func RemoveComment(jc *jira.Client, issue, id string) error {
+func RemoveComment(jc *Client, issue, id string) error {
 	req, err := jc.NewRequest("DELETE", fmt.Sprintf("/rest/api/2/issue/%s/comment/%s", issue, id), nil)
 	if err != nil {
 		return fmt.Errorf("could not query JIRA: %v", err)
@@ -441,7 +504,11 @@ func (cf *CommandFile) WriteAt(p []byte, offset int64) (int, error) {
 	args = args[1:]
 
 	if f, exists := cf.cmds[cmd]; exists {
-		return len(p), f(args)
+		err := f(args)
+		if err != nil {
+			log.Printf("Command %s failed: %v", cmd, err)
+		}
+		return len(p), err
 	}
 	return len(p), errors.New("no such command")
 }
@@ -463,7 +530,7 @@ func NewCommandFile(name string, perms qp.FileMode, user, group string, cmds map
 
 type JiraDir struct {
 	thing  interface{}
-	client *jira.Client
+	client *Client
 	*trees.SyntheticDir
 }
 
@@ -520,7 +587,7 @@ func (jd *JiraDir) Open(user string, mode qp.OpenMode) (trees.ReadWriteAtCloser,
 	}, nil
 }
 
-func NewJiraDir(name string, perm qp.FileMode, user, group string, jc *jira.Client, thing interface{}) (*JiraDir, error) {
+func NewJiraDir(name string, perm qp.FileMode, user, group string, jc *Client, thing interface{}) (*JiraDir, error) {
 	switch thing.(type) {
 	case trees.Dir, jiraWalker, jiraLister, jiraRemover:
 	default:
@@ -532,4 +599,163 @@ func NewJiraDir(name string, perm qp.FileMode, user, group string, jc *jira.Clie
 		client:       jc,
 		SyntheticDir: trees.NewSyntheticDir(name, perm, user, group),
 	}, nil
+}
+
+type Client struct {
+	user, pass string
+	jiraURL    *url.URL
+	cookies    []*http.Cookie
+	usingOAuth bool
+	*http.Client
+}
+
+func (c *Client) NewRequest(method, urlStr string, body interface{}) (*http.Request, error) {
+	rel, err := url.Parse(urlStr)
+	if err != nil {
+		return nil, err
+	}
+
+	u := c.jiraURL.ResolveReference(rel)
+
+	var buf io.ReadWriter
+	if body != nil {
+		buf = new(bytes.Buffer)
+		err := json.NewEncoder(buf).Encode(body)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	req, err := http.NewRequest(method, u.String(), buf)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	// Set session cookie if there is one
+	for _, cookie := range c.cookies {
+		req.AddCookie(cookie)
+	}
+
+	return req, nil
+}
+
+func (c *Client) Do(req *http.Request, v interface{}) (*http.Response, error) {
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	respBody, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return resp, err
+	}
+
+	if !(resp.StatusCode >= 200 && resp.StatusCode <= 299) {
+		return resp, fmt.Errorf("Error (status code %d): %s", resp.StatusCode, respBody)
+	}
+
+	if v != nil {
+		// Open a NewDecoder and defer closing the reader only if there is a provided interface to decode to
+		defer resp.Body.Close()
+		err = json.Unmarshal(respBody, v)
+	}
+
+	return resp, err
+}
+
+func (c *Client) AcquireSessionCookie(username, password string) (bool, error) {
+	apiEndpoint := "rest/auth/1/session"
+	body := struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}{
+		username,
+		password,
+	}
+
+	req, err := c.NewRequest("POST", apiEndpoint, body)
+	if err != nil {
+		return false, err
+	}
+
+	resp, err := c.Do(req, nil)
+	c.cookies = resp.Cookies()
+
+	if err != nil {
+		return false, fmt.Errorf("Auth at JIRA instance failed (HTTP(S) request). %s", err)
+	}
+	if resp != nil && resp.StatusCode != 200 {
+		return false, fmt.Errorf("Auth at JIRA instance failed (HTTP(S) request). Status code: %d", resp.StatusCode)
+	}
+
+	return true, nil
+}
+
+func (c *Client) login() error {
+	if c.usingOAuth {
+		return nil
+	}
+	res, err := c.AcquireSessionCookie(c.user, c.pass)
+	if err != nil || res == false {
+		return fmt.Errorf("Could not authenticate to JIRA: %v\n", err)
+	}
+	return nil
+}
+
+func (c *Client) oauth(consumerKey, privateKeyFile string) error {
+	pvf, err := ioutil.ReadFile(privateKeyFile)
+	if err != nil {
+		return err
+	}
+
+	block, _ := pem.Decode(pvf)
+	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return err
+	}
+
+	url1, _ := c.jiraURL.Parse("/plugins/servlet/oauth/request-token")
+	url2, _ := c.jiraURL.Parse("/plugins/servlet/oauth/authorize")
+	url3, _ := c.jiraURL.Parse("/plugins/servlet/oauth/access-token")
+
+	t := oauth.NewRSAConsumer(
+		consumerKey,
+		privateKey,
+		oauth.ServiceProvider{
+			RequestTokenUrl:   url1.String(),
+			AuthorizeTokenUrl: url2.String(),
+			AccessTokenUrl:    url3.String(),
+			HttpMethod:        "POST",
+		},
+	)
+
+	t.HttpClient = &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
+	requestToken, url, err := t.GetRequestTokenAndUrl("oob")
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("OAuth token requested. Please to go the following URL:\n\t%s\n\nEnter verification code: ", url)
+	var verificationCode string
+	fmt.Scanln(&verificationCode)
+	accessToken, err := t.AuthorizeToken(requestToken, verificationCode)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("OAuth token authorized.\n")
+
+	client, err := t.MakeHttpClient(accessToken)
+	if err != nil {
+		return err
+	}
+
+	c.Client = client
+	return nil
 }

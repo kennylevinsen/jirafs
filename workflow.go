@@ -5,15 +5,13 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-
-	"github.com/andygrunwald/go-jira"
 )
 
 type thing struct {
 	Name string `json:"name"`
 }
 
-func BuildWorkflow1(jc *jira.Client, project, issueTypeNo string) (*WorkflowGraph, error) {
+func BuildWorkflow1(jc *Client, project, issueTypeNo string) (*WorkflowGraph, error) {
 	req, err := jc.NewRequest("GET", fmt.Sprintf("/rest/projectconfig/latest/issuetype/%s/%s/workflow", project, issueTypeNo), nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not query JIRA 1: %v", err)
@@ -39,7 +37,7 @@ func BuildWorkflow1(jc *jira.Client, project, issueTypeNo string) (*WorkflowGrap
 	return &wg, nil
 }
 
-func BuildWorkflow2(jc *jira.Client, project, issueTypeNo string) (*WorkflowGraph, error) {
+func BuildWorkflow2(jc *Client, project, issueTypeNo string) (*WorkflowGraph, error) {
 	req, err := jc.NewRequest("GET", fmt.Sprintf("/rest/projectconfig/latest/issuetype/%s/%s/workflow", project, issueTypeNo), nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not query JIRA 1: %v", err)

@@ -1,57 +1,71 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net"
-	"os"
+	"net/http"
+	"net/url"
 	"time"
 
-	"github.com/andygrunwald/go-jira"
 	"github.com/howeyc/gopass"
 	"github.com/joushou/qp"
 	"github.com/joushou/qptools/fileserver"
 )
 
+var (
+	usingOAuth = flag.Bool("oauth", false, "use OAuth 1.0 for authorization")
+	ckey       = flag.String("ckey", "", "consumer key for OAuth")
+	pkey       = flag.String("pkey", "", "private key file for OAuth")
+	pass       = flag.Bool("pass", false, "use password for authorization")
+	jiraURLStr = flag.String("url", "", "jira URL")
+)
+
 func main() {
-	jiraClient, err := jira.NewClient(nil, os.Args[1])
+	flag.Parse()
+
+	jiraURL, err := url.Parse(*jiraURLStr)
 	if err != nil {
-		fmt.Printf("Could not connect to JIRA: %v\n", err)
+		fmt.Printf("Could not parse JIRA URL: %v\n", err)
 		return
 	}
 
-	var user, password string
-	fmt.Printf("Username: ")
-	_, err = fmt.Scanln(&user)
-	if err == nil {
+	client := &Client{Client: &http.Client{}, usingOAuth: *usingOAuth, jiraURL: jiraURL}
 
-		fmt.Printf("Password: ")
-		pass, err := gopass.GetPasswdMasked()
-		if err != nil {
-			fmt.Printf("Could not read password: %v", err)
-			return
-		}
-		password = string(pass)
-
-		auth := func() {
-			res, err := jiraClient.Authentication.AcquireSessionCookie(user, password)
-			if err != nil || res == false {
-				fmt.Printf("Could not authenticate to JIRA: %v\n", err)
+	switch {
+	case *pass:
+		var user string
+		fmt.Printf("Username: ")
+		_, err = fmt.Scanln(&user)
+		if err == nil {
+			fmt.Printf("Password: ")
+			pass, err := gopass.GetPasswdMasked()
+			if err != nil {
+				fmt.Printf("Could not read password: %v", err)
 				return
 			}
-		}
-		auth()
 
-		go func() {
-			t := time.NewTicker(5 * time.Minute)
-			for range t.C {
-				auth()
-			}
-		}()
-	} else {
-		fmt.Printf("Continuing without authentication.\n")
+			client.user = user
+			client.pass = string(pass)
+			client.login()
+
+			go func() {
+				t := time.NewTicker(5 * time.Minute)
+				for range t.C {
+					client.login()
+				}
+			}()
+		} else {
+			fmt.Printf("Continuing without authentication.\n")
+		}
+	case *usingOAuth:
+		if err := client.oauth(*ckey, *pkey); err != nil {
+			fmt.Printf("Could not complete oauth handshake: %v\n", err)
+			return
+		}
 	}
 
-	root, err := NewJiraDir("", 0555|qp.DMDIR, "jira", "jira", jiraClient, &JiraView{})
+	root, err := NewJiraDir("", 0555|qp.DMDIR, "jira", "jira", client, &JiraView{})
 	if err != nil {
 		fmt.Printf("Could not create JIRA view")
 		return

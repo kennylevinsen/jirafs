@@ -16,15 +16,15 @@ import (
 )
 
 type jiraWalker interface {
-	Walk(jc *jira.Client, name string) (trees.File, error)
+	Walk(jc *Client, name string) (trees.File, error)
 }
 
 type jiraLister interface {
-	List(jc *jira.Client) ([]qp.Stat, error)
+	List(jc *Client) ([]qp.Stat, error)
 }
 
 type jiraRemover interface {
-	Remove(jc *jira.Client, name string) error
+	Remove(jc *Client, name string) error
 }
 
 type CommentView struct {
@@ -32,7 +32,7 @@ type CommentView struct {
 	issueNo string
 }
 
-func (cw *CommentView) Walk(jc *jira.Client, name string) (trees.File, error) {
+func (cw *CommentView) Walk(jc *Client, name string) (trees.File, error) {
 	switch name {
 	case "comment":
 		sf := trees.NewSyntheticFile(name, 0777, "jira", "jira")
@@ -68,7 +68,7 @@ func (cw *CommentView) Walk(jc *jira.Client, name string) (trees.File, error) {
 	}
 }
 
-func (cw *CommentView) List(jc *jira.Client) ([]qp.Stat, error) {
+func (cw *CommentView) List(jc *Client) ([]qp.Stat, error) {
 	strs, err := GetCommentsForIssue(jc, fmt.Sprintf("%s-%s", cw.project, cw.issueNo))
 	if err != nil {
 		return nil, err
@@ -79,7 +79,7 @@ func (cw *CommentView) List(jc *jira.Client) ([]qp.Stat, error) {
 	return StringsToStats(strs, 0777, "jira", "jira"), nil
 }
 
-func (cw *CommentView) Remove(jc *jira.Client, name string) error {
+func (cw *CommentView) Remove(jc *Client, name string) error {
 	switch name {
 	case "comment":
 		return trees.ErrPermissionDenied
@@ -98,7 +98,7 @@ type IssueView struct {
 }
 
 func (iw *IssueView) normalFiles() (files, dirs []string) {
-	files = []string{"assignee", "creator", "ctl", "description", "type", "key", "reporter", "status", "summary", "labels", "transitions", "priority", "resolution", "raw", "progress", "links"}
+	files = []string{"assignee", "creator", "ctl", "description", "type", "key", "reporter", "status", "summary", "labels", "transitions", "priority", "resolution", "raw", "progress", "links", "components"}
 	dirs = []string{"comments"}
 	return
 }
@@ -108,7 +108,7 @@ func (iw *IssueView) newFiles() (files, dirs []string) {
 	return
 }
 
-func (iw *IssueView) newWalk(jc *jira.Client, file string) (trees.File, error) {
+func (iw *IssueView) newWalk(jc *Client, file string) (trees.File, error) {
 	files, dirs := iw.newFiles()
 	if !StringExistsInSets(file, files, dirs) {
 		return nil, nil
@@ -191,7 +191,18 @@ func (iw *IssueView) newWalk(jc *jira.Client, file string) (trees.File, error) {
 
 }
 
-func (iw *IssueView) normalWalk(jc *jira.Client, file string) (trees.File, error) {
+func renderIssueLink(l *jira.IssueLink, key string) string {
+	switch {
+	case l.OutwardIssue != nil:
+		return fmt.Sprintf("%s %s %s", key, l.OutwardIssue.Key, l.Type.Name)
+	case l.InwardIssue != nil:
+		return fmt.Sprintf("%s %s %s", l.InwardIssue.Key, key, l.Type.Name)
+	default:
+		return ""
+	}
+}
+
+func (iw *IssueView) normalWalk(jc *Client, file string) (trees.File, error) {
 	files, dirs := iw.normalFiles()
 	if !StringExistsInSets(file, files, dirs) {
 		return nil, nil
@@ -250,6 +261,14 @@ func (iw *IssueView) normalWalk(jc *jira.Client, file string) (trees.File, error
 		}
 	case "key":
 		sf.SetContent([]byte(issue.Key + "\n"))
+	case "components":
+		if issue.Fields != nil {
+			var s string
+			for _, comp := range issue.Fields.Components {
+				s += comp.Name + "\n"
+			}
+			sf.SetContent([]byte(s))
+		}
 	case "labels":
 		if issue.Fields != nil {
 			var s string
@@ -274,12 +293,7 @@ func (iw *IssueView) normalWalk(jc *jira.Client, file string) (trees.File, error
 		var s string
 		if issue.Fields != nil {
 			for _, l := range issue.Fields.IssueLinks {
-				switch {
-				case l.OutwardIssue != nil:
-					s += fmt.Sprintf("%s %s\n", l.OutwardIssue.Key, l.Type.Outward)
-				case l.InwardIssue != nil:
-					s += fmt.Sprintf("%s %s\n", l.InwardIssue.Key, l.Type.Inward)
-				}
+				s += renderIssueLink(l, issue.Key) + "\n"
 			}
 		}
 		sf.SetContent([]byte(s))
@@ -303,12 +317,59 @@ func (iw *IssueView) normalWalk(jc *jira.Client, file string) (trees.File, error
 			},
 		}
 		return NewCommandFile("ctl", 0777, "jira", "jira", cmds), nil
-
 	}
 
 	onClose := func() error {
 		switch file {
-		case "key", "raw", "progress", "links":
+		case "key", "raw", "progress":
+			return nil
+
+		case "links":
+			cur := make(map[string]string)
+			for _, l := range issue.Fields.IssueLinks {
+				cur[renderIssueLink(l, issue.Key)] = l.ID
+			}
+
+			sf.Lock()
+			str := string(sf.Content)
+			sf.Unlock()
+
+			// Figure out which issue links are new, and which are old.
+			var new []string
+			input := strings.Split(str, "\n")
+			for _, s := range input {
+				if s == "" {
+					continue
+				}
+				if _, exists := cur[s]; !exists {
+					new = append(new, s)
+				} else {
+					delete(cur, s)
+				}
+			}
+
+			// Delete the remaining old issue links
+			for k, v := range cur {
+				err := DeleteIssueLink(jc, v)
+				if err != nil {
+					log.Printf("Could not delete issue link %s (%s): %v", v, k, err)
+				}
+			}
+
+			for _, k := range new {
+				args := strings.Split(k, " ")
+				if len(args) != 3 {
+					continue
+				}
+				if args[0] != issue.Key && args[1] != issue.Key {
+					continue
+				}
+				err := LinkIssues(jc, args[0], args[1], args[2])
+				if err != nil {
+					log.Printf("Could not create issue link (%s): %v", k, err)
+				}
+			}
+
 			return nil
 		case "transitions":
 			sf.Lock()
@@ -367,7 +428,9 @@ func (iw *IssueView) normalWalk(jc *jira.Client, file string) (trees.File, error
 			sf.Lock()
 			str := string(sf.Content)
 			sf.Unlock()
-			if file != "description" && file != "labels" {
+			switch file {
+			case "description", "labels", "components":
+			default:
 				str = strings.Replace(str, "\n", "", -1)
 			}
 			return SetFieldInIssue(jc, issue.Key, file, str)
@@ -377,7 +440,7 @@ func (iw *IssueView) normalWalk(jc *jira.Client, file string) (trees.File, error
 	return NewCloseSaver(sf, onClose), nil
 }
 
-func (iw *IssueView) Walk(jc *jira.Client, file string) (trees.File, error) {
+func (iw *IssueView) Walk(jc *Client, file string) (trees.File, error) {
 	iw.issueLock.Lock()
 	isNew := iw.newIssue
 	iw.issueLock.Unlock()
@@ -389,7 +452,7 @@ func (iw *IssueView) Walk(jc *jira.Client, file string) (trees.File, error) {
 	}
 }
 
-func (iw *IssueView) List(jc *jira.Client) ([]qp.Stat, error) {
+func (iw *IssueView) List(jc *Client) ([]qp.Stat, error) {
 	iw.issueLock.Lock()
 	isNew := iw.newIssue
 	iw.issueLock.Unlock()
@@ -414,7 +477,7 @@ type SearchView struct {
 	results    []string
 }
 
-func (sw *SearchView) search(jc *jira.Client) error {
+func (sw *SearchView) search(jc *Client) error {
 	keys, err := GetKeysForSearch(jc, sw.query, 250)
 	if err != nil {
 		return err
@@ -426,7 +489,7 @@ func (sw *SearchView) search(jc *jira.Client) error {
 	return nil
 }
 
-func (sw *SearchView) Walk(jc *jira.Client, file string) (trees.File, error) {
+func (sw *SearchView) Walk(jc *Client, file string) (trees.File, error) {
 	sw.resultLock.Lock()
 	keys := sw.results
 	sw.resultLock.Unlock()
@@ -458,7 +521,7 @@ func (sw *SearchView) Walk(jc *jira.Client, file string) (trees.File, error) {
 	return NewJiraDir(file, 0555|qp.DMDIR, "jira", "jira", jc, iw)
 }
 
-func (sw *SearchView) List(jc *jira.Client) ([]qp.Stat, error) {
+func (sw *SearchView) List(jc *Client) ([]qp.Stat, error) {
 	if err := sw.search(jc); err != nil {
 		return nil, err
 	}
@@ -474,7 +537,7 @@ type ProjectView struct {
 	project string
 }
 
-func (pw *ProjectView) Walk(jc *jira.Client, issueNo string) (trees.File, error) {
+func (pw *ProjectView) Walk(jc *Client, issueNo string) (trees.File, error) {
 	iw := &IssueView{
 		project: pw.project,
 	}
@@ -489,6 +552,7 @@ func (pw *ProjectView) Walk(jc *jira.Client, issueNo string) (trees.File, error)
 
 		_, err := GetIssue(jc, fmt.Sprintf("%s-%s", pw.project, issueNo))
 		if err != nil {
+			log.Printf("Could not get issue details: %v", err)
 			return nil, err
 		}
 		iw.issueNo = issueNo
@@ -497,9 +561,10 @@ func (pw *ProjectView) Walk(jc *jira.Client, issueNo string) (trees.File, error)
 	return NewJiraDir(issueNo, 0555|qp.DMDIR, "jira", "jira", jc, iw)
 }
 
-func (pw *ProjectView) List(jc *jira.Client) ([]qp.Stat, error) {
+func (pw *ProjectView) List(jc *Client) ([]qp.Stat, error) {
 	keys, err := GetKeysForNIssues(jc, pw.project, 250)
 	if err != nil {
+		log.Printf("Could not generate issue list: %v", err)
 		return nil, err
 	}
 
@@ -509,10 +574,11 @@ func (pw *ProjectView) List(jc *jira.Client) ([]qp.Stat, error) {
 
 type AllProjectsView struct{}
 
-func (apw *AllProjectsView) Walk(jc *jira.Client, projectName string) (trees.File, error) {
+func (apw *AllProjectsView) Walk(jc *Client, projectName string) (trees.File, error) {
 	projectName = strings.ToUpper(projectName)
 	projects, err := GetProjects(jc)
 	if err != nil {
+		log.Printf("Could not generate project list: %v", err)
 		return nil, err
 	}
 
@@ -527,9 +593,10 @@ func (apw *AllProjectsView) Walk(jc *jira.Client, projectName string) (trees.Fil
 	return nil, nil
 }
 
-func (apw *AllProjectsView) List(jc *jira.Client) ([]qp.Stat, error) {
+func (apw *AllProjectsView) List(jc *Client) ([]qp.Stat, error) {
 	projects, err := GetProjects(jc)
 	if err != nil {
+		log.Printf("Could not generate project list: %v", err)
 		return nil, err
 	}
 
@@ -546,7 +613,7 @@ type JiraView struct {
 	searches   map[string]*SearchView
 }
 
-func (jw *JiraView) Walk(jc *jira.Client, file string) (trees.File, error) {
+func (jw *JiraView) Walk(jc *Client, file string) (trees.File, error) {
 	jw.searchLock.Lock()
 	defer jw.searchLock.Unlock()
 	if jw.searches == nil {
@@ -554,7 +621,7 @@ func (jw *JiraView) Walk(jc *jira.Client, file string) (trees.File, error) {
 	}
 
 	switch file {
-	case "search":
+	case "ctl":
 		cmds := map[string]func([]string) error{
 			"search": func(args []string) error {
 				if len(args) < 2 {
@@ -572,8 +639,11 @@ func (jw *JiraView) Walk(jc *jira.Client, file string) (trees.File, error) {
 				jw.searchLock.Unlock()
 				return nil
 			},
+			"relogin": func(args []string) error {
+				return jc.login()
+			},
 		}
-		return NewCommandFile("search", 0777, "jira", "jira", cmds), nil
+		return NewCommandFile("ctl", 0777, "jira", "jira", cmds), nil
 	case "projects":
 		return NewJiraDir(file, 0555|qp.DMDIR, "jira", "jira", jc, &AllProjectsView{})
 	default:
@@ -587,7 +657,7 @@ func (jw *JiraView) Walk(jc *jira.Client, file string) (trees.File, error) {
 	}
 }
 
-func (jw *JiraView) List(jc *jira.Client) ([]qp.Stat, error) {
+func (jw *JiraView) List(jc *Client) ([]qp.Stat, error) {
 	jw.searchLock.Lock()
 	defer jw.searchLock.Unlock()
 	if jw.searches == nil {
@@ -600,14 +670,14 @@ func (jw *JiraView) List(jc *jira.Client) ([]qp.Stat, error) {
 	}
 
 	a := StringsToStats([]string{"projects"}, 0555|qp.DMDIR, "jira", "jira")
-	b := StringsToStats([]string{"search"}, 0777, "jira", "jira")
+	b := StringsToStats([]string{"ctl"}, 0777, "jira", "jira")
 	c := StringsToStats(strs, 0777|qp.DMDIR, "jira", "jira")
 	return append(append(a, b...), c...), nil
 }
 
-func (jw *JiraView) Remove(jc *jira.Client, file string) error {
+func (jw *JiraView) Remove(jc *Client, file string) error {
 	switch file {
-	case "search", "projects":
+	case "ctl", "projects":
 		return trees.ErrPermissionDenied
 	default:
 		jw.searchLock.Lock()
