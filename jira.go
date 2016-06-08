@@ -15,18 +15,6 @@ import (
 	"github.com/joushou/qptools/fileserver/trees"
 )
 
-type jiraWalker interface {
-	Walk(jc *Client, name string) (trees.File, error)
-}
-
-type jiraLister interface {
-	List(jc *Client) ([]qp.Stat, error)
-}
-
-type jiraRemover interface {
-	Remove(jc *Client, name string) error
-}
-
 type CommentView struct {
 	project string
 	issueNo string
@@ -98,7 +86,8 @@ type IssueView struct {
 }
 
 func (iw *IssueView) normalFiles() (files, dirs []string) {
-	files = []string{"assignee", "creator", "ctl", "description", "type", "key", "reporter", "status", "summary", "labels", "transitions", "priority", "resolution", "raw", "progress", "links", "components"}
+	files = []string{"assignee", "creator", "ctl", "description", "type", "key", "reporter", "status",
+		"summary", "labels", "transition", "priority", "resolution", "raw", "progress", "links", "components"}
 	dirs = []string{"comments"}
 	return
 }
@@ -277,7 +266,7 @@ func (iw *IssueView) normalWalk(jc *Client, file string) (trees.File, error) {
 			}
 			sf.SetContent([]byte(s))
 		}
-	case "transitions":
+	case "transition":
 		trs, err := GetTransitionsForIssue(jc, issue.Key)
 		if err != nil {
 			log.Printf("Could not get transitions for issue %s: %v", issue.Key, err)
@@ -371,7 +360,7 @@ func (iw *IssueView) normalWalk(jc *Client, file string) (trees.File, error) {
 			}
 
 			return nil
-		case "transitions":
+		case "transition":
 			sf.Lock()
 			str := string(sf.Content)
 			sf.Unlock()
@@ -478,7 +467,7 @@ type SearchView struct {
 }
 
 func (sw *SearchView) search(jc *Client) error {
-	keys, err := GetKeysForSearch(jc, sw.query, 250)
+	keys, err := GetKeysForSearch(jc, sw.query, jc.maxIssueListing)
 	if err != nil {
 		return err
 	}
@@ -562,7 +551,7 @@ func (pw *ProjectView) Walk(jc *Client, issueNo string) (trees.File, error) {
 }
 
 func (pw *ProjectView) List(jc *Client) ([]qp.Stat, error) {
-	keys, err := GetKeysForNIssues(jc, pw.project, 250)
+	keys, err := GetKeysForNIssues(jc, pw.project, jc.maxIssueListing)
 	if err != nil {
 		log.Printf("Could not generate issue list: %v", err)
 		return nil, err
@@ -639,8 +628,28 @@ func (jw *JiraView) Walk(jc *Client, file string) (trees.File, error) {
 				jw.searchLock.Unlock()
 				return nil
 			},
-			"relogin": func(args []string) error {
+			"pass-login": func(args []string) error {
+				if len(args) == 2 {
+					jc.user = args[0]
+					jc.pass = args[1]
+				}
 				return jc.login()
+			},
+			"set": func(args []string) error {
+				if len(args) != 2 {
+					return errors.New("invalid arguments")
+				}
+				switch args[0] {
+				case "max-issues":
+					mi, err := strconv.ParseInt(args[1], 10, 64)
+					if err != nil {
+						return err
+					}
+					jc.maxIssueListing = int(mi)
+					return nil
+				default:
+					return errors.New("unknown variable")
+				}
 			},
 		}
 		return NewCommandFile("ctl", 0777, "jira", "jira", cmds), nil

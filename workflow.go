@@ -12,24 +12,16 @@ type thing struct {
 }
 
 func BuildWorkflow1(jc *Client, project, issueTypeNo string) (*WorkflowGraph, error) {
-	req, err := jc.NewRequest("GET", fmt.Sprintf("/rest/projectconfig/latest/issuetype/%s/%s/workflow", project, issueTypeNo), nil)
-	if err != nil {
-		return nil, fmt.Errorf("could not query JIRA 1: %v", err)
-	}
-
 	var t thing
-	if _, err = jc.Do(req, &t); err != nil {
-		return nil, fmt.Errorf("could not query JIRA 2: %v", err)
-	}
-
-	req, err = jc.NewRequest("GET", fmt.Sprintf("/rest/projectconfig/latest/workflow?workflowName=%s", url.QueryEscape(t.Name)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("could not query JIRA 3: %v", err)
+	u := fmt.Sprintf("/rest/projectconfig/latest/issuetype/%s/%s/workflow", project, issueTypeNo)
+	if err := jc.RPC("GET", u, nil, &t); err != nil {
+		return nil, fmt.Errorf("could not query workflow for issue: %v", err)
 	}
 
 	var wr WorkflowResponse1
-	if _, err = jc.Do(req, &wr); err != nil {
-		return nil, fmt.Errorf("could not query JIRA 4: %v", err)
+	u = fmt.Sprintf("/rest/projectconfig/latest/workflow?workflowName=%s", url.QueryEscape(t.Name))
+	if err := jc.RPC("GET", u, nil, &wr); err != nil {
+		return nil, fmt.Errorf("could not query workflow graph: %v", err)
 	}
 
 	var wg WorkflowGraph
@@ -38,26 +30,16 @@ func BuildWorkflow1(jc *Client, project, issueTypeNo string) (*WorkflowGraph, er
 }
 
 func BuildWorkflow2(jc *Client, project, issueTypeNo string) (*WorkflowGraph, error) {
-	req, err := jc.NewRequest("GET", fmt.Sprintf("/rest/projectconfig/latest/issuetype/%s/%s/workflow", project, issueTypeNo), nil)
-	if err != nil {
-		return nil, fmt.Errorf("could not query JIRA 1: %v", err)
-	}
-
 	var t thing
-	if _, err = jc.Do(req, &t); err != nil {
-		return nil, fmt.Errorf("could not query JIRA 2: %v", err)
+	u := fmt.Sprintf("/rest/projectconfig/latest/issuetype/%s/%s/workflow", project, issueTypeNo)
+	if err := jc.RPC("GET", u, nil, &t); err != nil {
+		return nil, fmt.Errorf("could not query workflow for issue: %v", err)
 	}
-
-	req, err = jc.NewRequest("GET", fmt.Sprintf("/rest/workflowDesigner/latest/workflows?name=%s", url.QueryEscape(t.Name)), nil)
-	if err != nil {
-		return nil, fmt.Errorf("could not query JIRA 3: %v", err)
-	}
-
-	req.Header.Set("X-Atlassian-Token", "nocheck")
 
 	var wr WorkflowResponse2
-	if _, err = jc.Do(req, &wr); err != nil {
-		return nil, fmt.Errorf("could not query JIRA 4: %v", err)
+	u = fmt.Sprintf("/rest/workflowDesigner/latest/workflows?name=%s", url.QueryEscape(t.Name))
+	if err := jc.RPC("GET", u, nil, &wr); err != nil {
+		return nil, fmt.Errorf("could not query workflow graph: %v", err)
 	}
 
 	var wg WorkflowGraph
