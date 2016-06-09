@@ -23,7 +23,7 @@ type Client struct {
 	cookies                 []*http.Cookie
 	alwaysLogin, usingOAuth bool
 
-	maxIssueListing int
+	maxlisting int
 }
 
 type RPCError struct {
@@ -33,7 +33,7 @@ type RPCError struct {
 }
 
 func (rpc *RPCError) Error() string {
-	return fmt.Sprintf("RPCError: %s: status %d,  %s", rpc.Description, rpc.Status, rpc.Body)
+	return fmt.Sprintf("RPCError: %s: status %s, %s", rpc.Description, rpc.Status, rpc.Body)
 }
 
 func (c *Client) RPC(method, path string, body, target interface{}) error {
@@ -43,13 +43,16 @@ func (c *Client) RPC(method, path string, body, target interface{}) error {
 	}
 
 	var b io.Reader
-	if body != nil {
+	switch x := body.(type) {
+	case nil:
+	case []byte:
+		b = bytes.NewReader(x)
+	default:
 		buf, err := json.Marshal(body)
 		if err != nil {
 			return err
 		}
 		b = bytes.NewReader(buf)
-
 	}
 
 	req, err := http.NewRequest(method, u.String(), b)

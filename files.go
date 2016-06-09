@@ -117,21 +117,25 @@ func (csh *CloseSaverHandle) Close() error {
 
 // CloseSaver calls a callback on save if the file was opened for writing.
 type CloseSaver struct {
-	onClose func() error
+	onClose    func() error
+	forceTrunc bool
 	trees.File
 }
 
 func (cs *CloseSaver) Open(user string, mode qp.OpenMode) (trees.ReadWriteAtCloser, error) {
-	hndl, err := cs.File.Open(user, mode)
-	if err != nil {
-		return nil, err
-	}
-
 	var closer func() error
 
 	switch mode & 3 {
 	case qp.OWRITE, qp.ORDWR:
+		if cs.forceTrunc {
+			mode |= qp.OTRUNC
+		}
 		closer = cs.onClose
+	}
+
+	hndl, err := cs.File.Open(user, mode)
+	if err != nil {
+		return nil, err
 	}
 
 	return &CloseSaverHandle{
@@ -140,7 +144,7 @@ func (cs *CloseSaver) Open(user string, mode qp.OpenMode) (trees.ReadWriteAtClos
 	}, nil
 }
 
-func NewCloseSaver(file trees.File, onClose func() error) trees.File {
+func NewCloseSaver(file trees.File, onClose func() error) *CloseSaver {
 	return &CloseSaver{
 		onClose: onClose,
 		File:    file,

@@ -14,6 +14,7 @@ import (
 )
 
 var (
+	address     = flag.String("address", "localhost:30000", "address to bind on")
 	usingOAuth  = flag.Bool("oauth", false, "use OAuth 1.0 for authorization")
 	ckey        = flag.String("ckey", "", "consumer key for OAuth")
 	pkey        = flag.String("pkey", "", "private key file for OAuth")
@@ -21,7 +22,7 @@ var (
 	jiraURLStr  = flag.String("url", "", "jira URL")
 	loginInt    = flag.Int("loginint", 5, "login interval in minutes - 0 disables automatic relogin (password auth only)")
 	alwaysLogin = flag.Bool("alwayslogin", false, "log in on all requests (password auth only)")
-	maxIssues   = flag.Int("maxissues", 100, "max issue listing")
+	maxlisting  = flag.Int("maxlisting", 100, "max directory listing length")
 )
 
 func main() {
@@ -34,11 +35,11 @@ func main() {
 	}
 
 	client := &Client{
-		Client:          &http.Client{},
-		alwaysLogin:     *alwaysLogin,
-		usingOAuth:      *usingOAuth,
-		jiraURL:         jiraURL,
-		maxIssueListing: *maxIssues,
+		Client:      &http.Client{},
+		alwaysLogin: *alwaysLogin,
+		usingOAuth:  *usingOAuth,
+		jiraURL:     jiraURL,
+		maxlisting:  *maxlisting,
 	}
 
 	switch {
@@ -84,7 +85,7 @@ func main() {
 		return
 	}
 
-	l, err := net.Listen("tcp", ":30000")
+	l, err := net.Listen("tcp", *address)
 	if err != nil {
 		fmt.Printf("Could not listen: %v\n", err)
 		return

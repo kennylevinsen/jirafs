@@ -13,6 +13,15 @@ type SearchResult struct {
 	Issues []jira.Issue `json:"issues"`
 }
 
+func GetProject(jc *Client, projectKey string) (*jira.Project, error) {
+	var project jira.Project
+	url := fmt.Sprintf("/rest/api/2/project/%s", projectKey)
+	if err := jc.RPC("GET", url, nil, &project); err != nil {
+		return nil, fmt.Errorf("could not query projects: %v", err)
+	}
+	return &project, nil
+}
+
 func GetProjects(jc *Client) ([]jira.Project, error) {
 	var projects []jira.Project
 	if err := jc.RPC("GET", "/rest/api/2/project", nil, &projects); err != nil {
@@ -21,17 +30,16 @@ func GetProjects(jc *Client) ([]jira.Project, error) {
 	return projects, nil
 }
 
-func GetTypesForProject(jc *Client, project string) ([]string, error) {
-	var types []jira.IssueType
-	if err := jc.RPC("GET", "/rest/api/2/issuetype", nil, &types); err != nil {
-		return nil, fmt.Errorf("could not query issue types: %v", err)
+func GetTypesForProject(jc *Client, projectKey string) ([]string, error) {
+	p, err := GetProject(jc, projectKey)
+	if err != nil {
+		return nil, err
 	}
 
-	ss := make([]string, len(types))
-	for i, tp := range types {
+	ss := make([]string, len(p.IssueTypes))
+	for i, tp := range p.IssueTypes {
 		ss[i] = tp.Name
 	}
-
 	return ss, nil
 }
 
@@ -50,7 +58,7 @@ func GetKeysForSearch(jc *Client, query string, max int) ([]string, error) {
 	return ss, nil
 }
 
-func GetKeysForNIssues(jc *Client, project string, max int) ([]string, error) {
+func GetKeysForNIssuesInProject(jc *Client, project string, max int) ([]string, error) {
 	var s SearchResult
 	url := fmt.Sprintf("/rest/api/2/search?fields=key&maxResults=%d&jql=project=%s", max, project)
 	if err := jc.RPC("GET", url, nil, &s); err != nil {
@@ -71,8 +79,8 @@ func GetKeysForNIssues(jc *Client, project string, max int) ([]string, error) {
 
 func GetIssue(jc *Client, key string) (*jira.Issue, error) {
 	var i jira.Issue
-	url := fmt.Sprintf("/rest/api/2/issue/%s", key)
-	if err := jc.RPC("GET", url, nil, &i); err != nil {
+	u := fmt.Sprintf("/rest/api/2/issue/%s", key)
+	if err := jc.RPC("GET", u, nil, &i); err != nil {
 		return nil, fmt.Errorf("could not query issue: %v", err)
 	}
 	return &i, nil
@@ -126,6 +134,24 @@ func LinkIssues(jc *Client, inwardKey, outwardKey, relation string) error {
 	return nil
 }
 
+func GetWorklogForIssue(jc *Client, issue string) (*jira.Worklog, error) {
+	var w jira.Worklog
+	url := fmt.Sprintf("/rest/api/2/issue/%s/worklog", issue)
+	if err := jc.RPC("GET", url, nil, &w); err != nil {
+		return nil, fmt.Errorf("could not get worklog: %v", err)
+	}
+	return &w, nil
+}
+
+func GetSpecificWorklogForIssue(jc *Client, issue, worklog string) (*jira.WorklogRecord, error) {
+	var w jira.WorklogRecord
+	url := fmt.Sprintf("/rest/api/2/issue/%s/worklog/%s", issue, worklog)
+	if err := jc.RPC("GET", url, nil, &w); err != nil {
+		return nil, fmt.Errorf("could not get worklog: %v", err)
+	}
+	return &w, nil
+}
+
 type Transition struct {
 	ID     string            `json:"id,omitempty"`
 	Name   string            `json:"name,omitempty"`
@@ -171,6 +197,14 @@ func TransitionIssue(jc *Client, issue, transition string) error {
 	url := fmt.Sprintf("/rest/api/2/issue/%s/transitions", issue)
 	if err := jc.RPC("POST", url, post, nil); err != nil {
 		return fmt.Errorf("could not transition issue: %v", err)
+	}
+	return nil
+}
+
+func SetIssueRaw(jc *Client, issueNo string, b []byte) error {
+	url := fmt.Sprintf("/rest/api/2/issue/%s", issueNo)
+	if err := jc.RPC("PUT", url, b, nil); err != nil {
+		return fmt.Errorf("could not set issue: %v", err)
 	}
 	return nil
 }

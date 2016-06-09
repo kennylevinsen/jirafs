@@ -1,0 +1,145 @@
+# jirafs
+
+jirafs is a 9P fileserver that presents JIRA as a filesystem. It tries to be feature-complete without getting in the way.
+
+jirafs supports both username/password login, and oauth 1.0 login to JIRA. Note that username/password logins expire at seemingly arbitrary intervals, so it may prove slightly unreliable.
+
+## OAuth
+
+In order to use oauth, you must generate a key pair for jirafs:
+```plain
+openssl genrsa -out private_key.pem 4096
+openssl rsa -pubout -in private_key.pem -out public_key.pem
+```
+
+After setting this up, you will have to set up a generic application link in JIRA, entering arbitrary URL's (they don't matter), a consumer key and the public key generated above. Once done, starting jirafs with `-oath -ckey consumer_key -pkey private_key.pem` should work, requesting that you go through the OAuth verification step (note that -ckey is the literal key, not a path to a key file).
+
+## Username/password auth
+
+Simply start jirafs with the `-pass` option. If you want to configure the automatic relogin, see the `-loginint` or `-alwayslogin` options.
+
+## Mounting jirafs
+
+On Linux, you can mount jirafs with the following (assuming it is running on localhost:30000):
+```plain
+sudo mount -t 9p -o trans=tcp,port=30000,noextend,sync,dirsync,nosuid,tcp 127.0.0.1 /mnt/jira
+```
+
+## Disclaimer
+
+jirafs comes without any warranties. The jirafs directory structure may change at random until an optimal shape has been reached.
+
+# Structure
+
+```plain
+/
+   ctl
+   projects/
+      ABC/
+         components
+         issuetypes
+         issues/
+            1/ # ABC-1
+               ...
+            ...
+
+      DEF/
+         ...
+      ...
+   issues/
+      new/
+         ctl
+         description
+         project
+         summary
+         type
+      ABC-1/
+         assignee
+         comments/
+            1
+            ...
+            comment
+         components
+         creator
+         ctl
+         description
+         key
+         labels
+         links
+         priority
+         progress
+         project
+         raw
+         reporter
+         resolution
+         status
+         summary
+         transition
+         type
+         worklog/
+            1/
+               comment
+               author
+               time
+               started
+            ...
+      ABC-2/
+         ...
+      ...
+
+```
+
+## Files worthy of note
+
+## ctl
+
+A global control file. It supports the following commands:
+
+* search search_name JQL
+
+If successful, a folder named search_name will appear at the jirafs root. `ls`'ing in the folder updates the search. The search does not update when simply trying to access an issue in order to avoid significant performance issues.
+
+* pass-login
+
+Re-issue a username/password login using the initially provided credentials.
+
+* set name val
+
+Sets jirafs variables. Currently, max-listing is the only variable, which expects an integer.
+
+
+## projects/ABC/issues
+
+A convenience view of only the issues present in the project. They are listed without their project key. Their structure is similar to that of an issue in issues/
+
+## issues/new
+
+New is a folder that creates a new skeleton issue when entered. It only contains a minimal set of files necessary to create the issue. Once all fields have been filled out, writing "commit" to the ctl file will cause the issue to be created. The issue folder will change to be that of a created issue, with all files available. Read the "key" file to figure out what issue key your issue received.
+
+### issues/ABC-1/comments
+
+A folder containing comments for the issue. Writing to the comment file creates a new comment. Writing to an existing comment changes it. This structure may change in the future.
+
+### issues/ABC-1/components
+
+A list of components this issue applies to. Writable. Note that the component names are case sensitive, and must be match an existing component for the project.
+
+### issues/ABC-1/ctl
+
+A command file. On a new issue, the only accepted command is "commit", which creates the issue with the provided parameters. For existing issues, the only accepted command is "delete". In the future, more commands may be made available for things that map poorly to files.
+
+### issues/ABC-1/links
+
+Issue links in the form of "INWARD-ISSUE OUTWARD-ISSUE RELATIONSHIP", such as "ABC-1 ABC-2 Blocks". Writable.
+
+### issues/ABC-1/raw
+
+The raw JSON issue object. Writable. Expects the written data to be JSON, and the write will be pushed as an issue update.
+
+### issues/ABC-1/status
+
+When writing to the status file, jirafs will fetch the relevant workflow graph and trace the shortest path from the current status to the requested status, issuing the necessary transitions in order.
+
+### issues/ABC-1/transition
+
+A list of currently possible transitions. Writing to the file executes the transition. See `status` for a more convenient way of changing issue status.
