@@ -83,66 +83,119 @@ func (iwv *IssueWorklogView) List(jc *Client) ([]qp.Stat, error) {
 		s = append(s, wr.ID)
 	}
 
-	return StringsToStats(s, 0555, "jira", "jira"), nil
+	return StringsToStats(s, 0555|qp.DMDIR, "jira", "jira"), nil
 }
 
 type CommentView struct {
 	issueNo string
+	comment string
 }
 
-func (cw *CommentView) Walk(jc *Client, name string) (trees.File, error) {
-	switch name {
-	case "comment":
-		sf := trees.NewSyntheticFile(name, 0777, "jira", "jira")
-		onClose := func() error {
-			sf.Lock()
-			body := string(sf.Content)
-			sf.Unlock()
-
-			return AddComment(jc, cw.issueNo, body)
-		}
-		return NewCloseSaver(sf, onClose), nil
-	default:
-		cmt, err := GetComment(jc, cw.issueNo, name)
-		if err != nil {
-			return nil, err
-		}
-		if len(cmt.Body) > 0 && cmt.Body[len(cmt.Body)-1] != '\n' {
-			cmt.Body += "\n"
-		}
-
-		sf := trees.NewSyntheticFile(name, 0777, cmt.Author.Name, "jira")
-		sf.SetContent([]byte(cmt.Body))
-
-		onClose := func() error {
-			sf.Lock()
-			body := string(sf.Content)
-			sf.Unlock()
-
-			return SetComment(jc, cw.issueNo, name, body)
-		}
-
-		return NewCloseSaver(sf, onClose), nil
+func (cw *CommentView) Walk(jc *Client, file string) (trees.File, error) {
+	if !StringExistsInSets(file, []string{"author", "comment", "updated", "created"}) {
+		return nil, nil
 	}
-}
 
-func (cw *CommentView) List(jc *Client) ([]qp.Stat, error) {
-	strs, err := GetCommentsForIssue(jc, cw.issueNo)
+	cmt, err := GetComment(jc, cw.issueNo, cw.comment)
 	if err != nil {
 		return nil, err
 	}
 
-	strs = append(strs, "comment")
+	var cnt []byte
+	writable := false
+	forceTrunc := true
+	switch file {
+	case "author":
+		cnt = []byte(cmt.Author.Name + "\n")
+	case "comment":
+		cnt = []byte(cmt.Body)
+		forceTrunc = false
+		writable = true
+	case "updated":
+		cnt = []byte(cmt.Updated + "\n")
+	case "created":
+		cnt = []byte(cmt.Created + "\n")
+	}
+	var perm qp.FileMode
+	if writable {
+		perm = 0777
+	} else {
+		perm = 0555
+	}
+	sf := trees.NewSyntheticFile(file, perm, "jira", "jira")
+	sf.SetContent(cnt)
 
-	return StringsToStats(strs, 0777, "jira", "jira"), nil
+	onClose := func() error {
+		sf.RLock()
+		str := string(sf.Content)
+		sf.RUnlock()
+
+		switch file {
+		case "comment":
+			return SetComment(jc, cw.issueNo, cw.comment, str)
+		}
+		return nil
+	}
+
+	if writable {
+		cs := NewCloseSaver(sf, onClose)
+		cs.forceTrunc = forceTrunc
+		return cs, nil
+	}
+
+	return sf, nil
 }
 
-func (cw *CommentView) Remove(jc *Client, name string) error {
+func (cw *CommentView) List(jc *Client) ([]qp.Stat, error) {
+	a := StringsToStats([]string{"comment"}, 0777, "jira", "jira")
+	b := StringsToStats([]string{"author", "updated", "created"}, 0555, "jira", "jira")
+	return append(a, b...), nil
+}
+
+type IssueCommentView struct {
+	issueNo string
+}
+
+func (icv *IssueCommentView) Walk(jc *Client, file string) (trees.File, error) {
+	switch file {
+	case "comment":
+		sf := trees.NewSyntheticFile(file, 0777, "jira", "jira")
+		onClose := func() error {
+			sf.Lock()
+			body := string(sf.Content)
+			sf.Unlock()
+
+			return AddComment(jc, icv.issueNo, body)
+		}
+		return NewCloseSaver(sf, onClose), nil
+	default:
+		_, err := GetComment(jc, icv.issueNo, file)
+		if err != nil {
+			return nil, err
+		}
+		cv := &CommentView{issueNo: icv.issueNo, comment: file}
+		return NewJiraDir(file, 0777|qp.DMDIR, "jira", "jira", jc, cv)
+	}
+}
+
+func (icv *IssueCommentView) List(jc *Client) ([]qp.Stat, error) {
+	strs, err := GetCommentsForIssue(jc, icv.issueNo)
+	if err != nil {
+		return nil, err
+	}
+
+	a := StringsToStats(strs, 0777|qp.DMDIR, "jira", "jira")
+	b := StringsToStats([]string{"comment"}, 0777, "jira", "jira")
+
+	return append(a, b...), nil
+}
+
+func (icv *IssueCommentView) Remove(jc *Client, name string) error {
 	switch name {
 	case "comment":
 		return trees.ErrPermissionDenied
 	default:
-		return RemoveComment(jc, cw.issueNo, name)
+		return RemoveComment(jc, icv.issueNo, name)
 	}
 }
 
@@ -378,7 +431,7 @@ func (iw *IssueView) normalWalk(jc *Client, file string) (trees.File, error) {
 			"jira",
 			"jira",
 			jc,
-			&CommentView{issueNo: iw.issueNo})
+			&IssueCommentView{issueNo: iw.issueNo})
 	case "worklog":
 		return NewJiraDir(file,
 			0555|qp.DMDIR,

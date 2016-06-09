@@ -56,7 +56,13 @@ jirafs comes without any warranties. The jirafs directory structure may change a
       ABC-1/
          assignee
          comments/
-            1
+            1/
+               author
+               updated
+               created
+               comment
+            2/
+               ...
             ...
             comment
          components
@@ -78,10 +84,10 @@ jirafs comes without any warranties. The jirafs directory structure may change a
          type
          worklog/
             1/
-               comment
                author
-               time
                started
+               time
+               comment
             ...
       ABC-2/
          ...
