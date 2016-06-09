@@ -25,7 +25,7 @@ On Linux, you can mount jirafs with the following (assuming it is running on loc
 sudo mount -t 9p -o trans=tcp,port=30000,noextend,sync,dirsync,nosuid,tcp 127.0.0.1 /mnt/jira
 ```
 
-Beware that v9fs, the 9P kernel support for Linux, has a few bugs. One is that it does not feed through the OTRUNC opening option properly. Another is that it does not handle large directory listings well, so keep maxlisting to about 100. The patches to fix this are on their way, but it will probably take a while before you'll get the update.
+Beware that v9fs, the 9P kernel support for Linux, has a few bugs. One is that it does not feed through the OTRUNC opening option properly, meaning that some "echo wee > file" becomes "echo wee >> file" instead. Another is that it does not handle large directory listings well, so keep maxlisting to about 100. The patches to fix these issues are on their way, but it will probably take a while before you'll get the update.
 
 These issues are due to v9fs not getting much use as a "normal" 9P client, but let's change that!
 
