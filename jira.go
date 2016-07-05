@@ -238,7 +238,7 @@ func (iw *IssueView) newWalk(jc *Client, file string) (trees.File, error) {
 				if iw.values != nil {
 					issuetype = strings.Replace(string(iw.values["type"]), "\n", "", -1)
 					summary = strings.Replace(string(iw.values["summary"]), "\n", "", -1)
-					description = strings.Replace(string(iw.values["description"]), "\n", "", -1)
+					description = string(iw.values["description"])
 					project = strings.Replace(string(iw.values["project"]), "\n", "", -1)
 				}
 				iw.issueLock.Unlock()
@@ -878,7 +878,6 @@ func (jw *JiraView) Walk(jc *Client, file string) (trees.File, error) {
 
 				sw := &SearchView{query: strings.Join(args[1:], " ")}
 				if err := sw.search(jc); err != nil {
-					log.Printf("search failed: %v", err)
 					return err
 				}
 
