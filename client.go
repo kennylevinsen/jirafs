@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-    "io"
-    "io/ioutil"
+	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 
@@ -18,8 +18,8 @@ import (
 type Client struct {
 	*http.Client
 
-	user, pass              string
-	jiraURL                 *url.URL
+	user, pass string
+	jiraURL    *url.URL
 	usingOAuth bool
 
 	maxlisting int
@@ -41,7 +41,7 @@ func (c *Client) RPC(method, path string, body, target interface{}) error {
 		return err
 	}
 
-    var b io.Reader
+	var b io.Reader
 	switch x := body.(type) {
 	case nil:
 	case []byte:
@@ -65,7 +65,7 @@ func (c *Client) RPC(method, path string, body, target interface{}) error {
 	req.Header.Set("X-Atlassian-Token", "nocheck")
 
 	if !c.usingOAuth {
-		req.SetBasicAuth(c.user, c.pass);
+		req.SetBasicAuth(c.user, c.pass)
 	}
 
 	resp, err := c.Client.Do(req)

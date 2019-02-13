@@ -29,12 +29,14 @@ Beware that v9fs, the 9P kernel support for Linux, has a few bugs. One is that i
 
 These issues are due to v9fs not getting much use as a "normal" 9P client, but let's change that!
 
-On MacOSX, you can use plan9port and 9pfuse. First install [FUSE for macOS](https://osxfuse.github.io/). Then install [plan9port](https://9fans.github.io/plan9port/). You can then use 9pfuse to mount. Beware, however, that stock 'ls' on MacOSX won't work to show the available directory files--you have to use '9 ls', '9 lc' etc.
+On MacOSX, there are two options:
+* You can use plan9port which provides 9pfuse. First install [FUSE for macOS](https://osxfuse.github.io/). Then install [plan9port](https://9fans.github.io/plan9port/). You can then use 9pfuse to mount. Beware, however, that stock 'ls' on MacOSX won't work to show the available directory files--you have to use '9 ls', '9 lc' etc.
 ```plain
 cd jirafs; go build; ./jirafs -pass -url=https://jira.example.com
 # then after entering credentials, open another terminal in the parent directory you want for accessing JIRA:
 9pfuse 'tcp!localhost!30000' my-jira; cd my-jira; 9 lc projects
 ```
+* You can use [Mac9P](https://github.com/kennylevinsen/mac9p). Follow the install instructions.
 
 ## Disclaimer
 

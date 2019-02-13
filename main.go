@@ -13,13 +13,13 @@ import (
 )
 
 var (
-	address     = flag.String("address", "localhost:30000", "address to bind on")
-	usingOAuth  = flag.Bool("oauth", false, "use OAuth 1.0 for authorization")
-	ckey        = flag.String("ckey", "", "consumer key for OAuth")
-	pkey        = flag.String("pkey", "", "private key file for OAuth")
-	pass        = flag.Bool("pass", false, "use password for authorization")
-	jiraURLStr  = flag.String("url", "", "jira URL")
-	maxlisting  = flag.Int("maxlisting", 100, "max directory listing length")
+	address    = flag.String("address", "localhost:30000", "address to bind on")
+	usingOAuth = flag.Bool("oauth", false, "use OAuth 1.0 for authorization")
+	ckey       = flag.String("ckey", "", "consumer key for OAuth")
+	pkey       = flag.String("pkey", "", "private key file for OAuth")
+	pass       = flag.Bool("pass", false, "use password for authorization")
+	jiraURLStr = flag.String("url", "", "jira URL")
+	maxlisting = flag.Int("maxlisting", 100, "max directory listing length")
 )
 
 func main() {
@@ -32,10 +32,10 @@ func main() {
 	}
 
 	client := &Client{
-		Client:      &http.Client{},
-		usingOAuth:  *usingOAuth,
-		jiraURL:     jiraURL,
-		maxlisting:  *maxlisting,
+		Client:     &http.Client{},
+		usingOAuth: *usingOAuth,
+		jiraURL:    jiraURL,
+		maxlisting: *maxlisting,
 	}
 
 	switch {

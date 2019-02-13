@@ -205,7 +205,7 @@ type IssueView struct {
 
 	issueLock sync.Mutex
 	newIssue  bool
-	values	map[string]string
+	values    map[string]string
 }
 
 func (iw *IssueView) normalFiles() (files, dirs []string) {
@@ -259,7 +259,7 @@ func (iw *IssueView) newWalk(jc *Client, file string) (trees.File, error) {
 						Project: jira.Project{
 							Key: project,
 						},
-						Summary:	 summary,
+						Summary:     summary,
 						Description: description,
 					},
 				}
@@ -624,9 +624,9 @@ func (iw *IssueView) List(jc *Client) ([]qp.Stat, error) {
 }
 
 type SearchView struct {
-	query	  string
+	query      string
 	resultLock sync.Mutex
-	results	[]string
+	results    []string
 }
 
 func (sw *SearchView) search(jc *Client) error {
@@ -836,7 +836,7 @@ For deeper structural representation under this hierarchy, cat 'structure'.
 		sf.SetContent([]byte(message))
 		return sf, nil
 	} else if issueKey == "structure" {
-        message :=`new/
+		message := `new/
 	 ctl
 	 description
 	 project
@@ -918,15 +918,15 @@ func (aiv *AllIssuesView) List(jc *Client) ([]qp.Stat, error) {
 		return nil, err
 	}
 
-	keys	= append(keys, "new")
+	keys = append(keys, "new")
 	issues := StringsToStats(keys, 0555|qp.DMDIR, "jira", "jira")
-	help	:= StringsToStats([]string{"help","structure"}, 055, "jira", "jira")
+	help := StringsToStats([]string{"help", "structure"}, 055, "jira", "jira")
 	return append(issues, help...), nil
 }
 
 type JiraView struct {
 	searchLock sync.Mutex
-	searches	map[string]*SearchView
+	searches   map[string]*SearchView
 }
 
 func (jw *JiraView) Walk(jc *Client, file string) (trees.File, error) {
@@ -984,7 +984,7 @@ func (jw *JiraView) Walk(jc *Client, file string) (trees.File, error) {
 	case "issues":
 		return NewJiraDir(file, 0555|qp.DMDIR, "jira", "jira", jc, &AllIssuesView{})
 	case "structure":
-message := `
+		message := `
 /
 	ctl
 	projects/
