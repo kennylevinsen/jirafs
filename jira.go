@@ -36,7 +36,7 @@ func (wv *WorklogView) Walk(jc *Client, file string) (trees.File, error) {
 		t := time.Duration(w.TimeSpentSeconds) * time.Second
 		sf.SetContent([]byte(t.String() + "\n"))
 	case "started":
-		sf.SetContent([]byte(time.Time(w.Started).String() + "\n"))
+		sf.SetContent([]byte(time.Time(*w.Started).String() + "\n"))
 	default:
 		return nil, nil
 	}
@@ -891,7 +891,7 @@ func (jw *JiraView) Walk(jc *Client, file string) (trees.File, error) {
 					jc.user = args[0]
 					jc.pass = args[1]
 				}
-				return jc.login()
+				return nil
 			},
 			"set": func(args []string) error {
 				if len(args) != 2 {

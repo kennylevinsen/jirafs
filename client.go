@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"io"
-	"io/ioutil"
+    "io"
+    "io/ioutil"
 	"net/http"
 	"net/url"
 
@@ -20,8 +20,7 @@ type Client struct {
 
 	user, pass              string
 	jiraURL                 *url.URL
-	cookies                 []*http.Cookie
-	alwaysLogin, usingOAuth bool
+	usingOAuth bool
 
 	maxlisting int
 }
@@ -42,7 +41,7 @@ func (c *Client) RPC(method, path string, body, target interface{}) error {
 		return err
 	}
 
-	var b io.Reader
+    var b io.Reader
 	switch x := body.(type) {
 	case nil:
 	case []byte:
@@ -65,14 +64,8 @@ func (c *Client) RPC(method, path string, body, target interface{}) error {
 	}
 	req.Header.Set("X-Atlassian-Token", "nocheck")
 
-	if c.alwaysLogin && !c.usingOAuth {
-		if err := c.AcquireSessionCookie(c.user, c.pass); err != nil {
-			return err
-		}
-	}
-
-	for _, cookie := range c.cookies {
-		req.AddCookie(cookie)
+	if !c.usingOAuth {
+		req.SetBasicAuth(c.user, c.pass);
 	}
 
 	resp, err := c.Client.Do(req)
@@ -103,54 +96,6 @@ func (c *Client) RPC(method, path string, body, target interface{}) error {
 
 	return nil
 
-}
-
-func (c *Client) AcquireSessionCookie(username, password string) error {
-	url, err := c.jiraURL.Parse("/rest/auth/1/session")
-	if err != nil {
-		return err
-	}
-
-	body := struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}{username, password}
-	b, err := json.Marshal(body)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequest("POST", url.String(), bytes.NewReader(b))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.Client.Do(req)
-	if _, err := ioutil.ReadAll(resp.Body); err != nil {
-		return err
-	}
-	resp.Body.Close()
-	c.cookies = resp.Cookies()
-
-	if err != nil {
-		return fmt.Errorf("Auth at JIRA instance failed (HTTP(S) request). %s", err)
-	}
-	if resp != nil && resp.StatusCode != 200 {
-		return fmt.Errorf("Auth at JIRA instance failed (HTTP(S) request). Status code: %d", resp.StatusCode)
-	}
-
-	return nil
-}
-
-func (c *Client) login() error {
-	if c.usingOAuth {
-		return nil
-	}
-	if err := c.AcquireSessionCookie(c.user, c.pass); err != nil {
-		return fmt.Errorf("Could not authenticate to JIRA: %v\n", err)
-	}
-	return nil
 }
 
 func (c *Client) oauth(consumerKey, privateKeyFile string) error {
