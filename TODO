@@ -1,0 +1,4 @@
+* Support saving of queries across mounts/unmounts, per username
+* Return directory listing of saved queries by ordering in JQL
+  * Support orderBy as control for each listing
+* Support startAt,total pagination control
