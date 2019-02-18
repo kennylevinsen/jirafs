@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"time"
 
 	"github.com/howeyc/gopass"
 	"github.com/joushou/qp"
@@ -14,15 +13,13 @@ import (
 )
 
 var (
-	address     = flag.String("address", "localhost:30000", "address to bind on")
-	usingOAuth  = flag.Bool("oauth", false, "use OAuth 1.0 for authorization")
-	ckey        = flag.String("ckey", "", "consumer key for OAuth")
-	pkey        = flag.String("pkey", "", "private key file for OAuth")
-	pass        = flag.Bool("pass", false, "use password for authorization")
-	jiraURLStr  = flag.String("url", "", "jira URL")
-	loginInt    = flag.Int("loginint", 5, "login interval in minutes - 0 disables automatic relogin (password auth only)")
-	alwaysLogin = flag.Bool("alwayslogin", false, "log in on all requests (password auth only)")
-	maxlisting  = flag.Int("maxlisting", 100, "max directory listing length")
+	address    = flag.String("address", "localhost:30000", "address to bind on")
+	usingOAuth = flag.Bool("oauth", false, "use OAuth 1.0 for authorization")
+	ckey       = flag.String("ckey", "", "consumer key for OAuth")
+	pkey       = flag.String("pkey", "", "private key file for OAuth")
+	pass       = flag.Bool("pass", false, "use password for authorization")
+	jiraURLStr = flag.String("url", "", "jira URL")
+	maxlisting = flag.Int("maxlisting", 100, "max directory listing length")
 )
 
 func main() {
@@ -35,11 +32,10 @@ func main() {
 	}
 
 	client := &Client{
-		Client:      &http.Client{},
-		alwaysLogin: *alwaysLogin,
-		usingOAuth:  *usingOAuth,
-		jiraURL:     jiraURL,
-		maxlisting:  *maxlisting,
+		Client:     &http.Client{},
+		usingOAuth: *usingOAuth,
+		jiraURL:    jiraURL,
+		maxlisting: *maxlisting,
 	}
 
 	switch {
@@ -57,16 +53,6 @@ func main() {
 
 			client.user = username
 			client.pass = string(password)
-			client.login()
-
-			if *loginInt > 0 {
-				go func() {
-					t := time.NewTicker(time.Duration(*loginInt) * time.Minute)
-					for range t.C {
-						client.login()
-					}
-				}()
-			}
 		} else {
 			fmt.Printf("Continuing without authentication.\n")
 		}

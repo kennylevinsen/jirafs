@@ -2,7 +2,7 @@
 
 jirafs is a 9P fileserver that presents JIRA as a filesystem. It tries to be feature-complete without getting in the way.
 
-jirafs supports both username/password login, and oauth 1.0 login to JIRA. Note that username/password logins expire at seemingly arbitrary intervals, so it may prove slightly unreliable.
+jirafs supports both username/password (basic authentication) login, and oauth 1.0 login to JIRA.
 
 ## OAuth
 
@@ -14,9 +14,9 @@ openssl rsa -pubout -in private_key.pem -out public_key.pem
 
 After setting this up, you will have to set up a generic application link in JIRA, entering arbitrary URL's (they don't matter), a consumer key and the public key generated above. Once done, starting jirafs with `-oath -ckey consumer_key -pkey private_key.pem` should work, requesting that you go through the OAuth verification step (note that -ckey is the literal key, not a path to a key file).
 
-## Username/password auth
+## Username/password (basic) auth
 
-Simply start jirafs with the `-pass` option. If you want to configure the automatic relogin, see the `-loginint` or `-alwayslogin` options.
+Simply start jirafs with the `-pass` option.
 
 ## Mounting jirafs
 
@@ -28,6 +28,15 @@ sudo mount -t 9p -o trans=tcp,port=30000,noextend,sync,dirsync,nosuid,tcp 127.0.
 Beware that v9fs, the 9P kernel support for Linux, has a few bugs. One is that it does not feed through the OTRUNC opening option properly, meaning that some "echo wee > file" becomes "echo wee >> file" instead. Another is that it does not handle large directory listings well, so keep maxlisting to about 100. The patches to fix these issues are on their way, but it will probably take a while before you'll get the update.
 
 These issues are due to v9fs not getting much use as a "normal" 9P client, but let's change that!
+
+On MacOSX, there are two options:
+* You can use plan9port which provides 9pfuse. First install [FUSE for macOS](https://osxfuse.github.io/). Then install [plan9port](https://9fans.github.io/plan9port/). You can then use 9pfuse to mount. Beware, however, that stock 'ls' on MacOSX won't work to show the available directory files--you have to use '9 ls', '9 lc' etc.
+```plain
+cd jirafs; go build; ./jirafs -pass -url=https://jira.example.com
+# then after entering credentials, open another terminal in the parent directory you want for accessing JIRA:
+9pfuse 'tcp!localhost!30000' my-jira; cd my-jira; 9 lc projects
+```
+* You can use [Mac9P](https://github.com/kennylevinsen/mac9p). Follow the install instructions.
 
 ## Disclaimer
 

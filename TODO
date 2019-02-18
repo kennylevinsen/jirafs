@@ -1,0 +1,5 @@
+* Support saving of queries across mounts/unmounts, per username
+* Return directory listing of saved queries by ordering in JQL
+  * Support orderBy as control for each listing
+* Support startAt,total pagination control
+* ?Use https://docs.atlassian.com/software/jira/docs/api/REST/7.6.1/jira-rest-plugin.wadl in some way?

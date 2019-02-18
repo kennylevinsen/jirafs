@@ -36,7 +36,7 @@ func (wv *WorklogView) Walk(jc *Client, file string) (trees.File, error) {
 		t := time.Duration(w.TimeSpentSeconds) * time.Second
 		sf.SetContent([]byte(t.String() + "\n"))
 	case "started":
-		sf.SetContent([]byte(time.Time(w.Started).String() + "\n"))
+		sf.SetContent([]byte(time.Time(*w.Started).String() + "\n"))
 	default:
 		return nil, nil
 	}
@@ -440,7 +440,7 @@ func (iw *IssueView) normalWalk(jc *Client, file string) (trees.File, error) {
 			jc,
 			&IssueWorklogView{issueNo: iw.issueNo})
 	case "raw":
-		b, err := json.MarshalIndent(issue, "", "   ")
+		b, err := json.MarshalIndent(issue, "", "	")
 		if err != nil {
 			return nil, err
 		}
@@ -760,7 +760,7 @@ func (pw *ProjectView) Walk(jc *Client, file string) (trees.File, error) {
 		if err != nil {
 			return nil, err
 		}
-		b, err := json.MarshalIndent(project, "", "   ")
+		b, err := json.MarshalIndent(project, "", "	")
 		if err != nil {
 			return nil, err
 		}
@@ -819,6 +819,72 @@ func (aiv *AllIssuesView) Walk(jc *Client, issueKey string) (trees.File, error) 
 
 	if issueKey == "new" {
 		iw.newIssue = true
+	} else if issueKey == "help" {
+		message := `new/: New is a folder that creates a new skeleton issue when entered. It only contains a minimal set of files necessary to create the issue. Once all fields have been filled out, writing "commit" to the ctl file will cause the issue to be created. The issue folder will change to be that of a created issue, with all files available. Read the "key" file to figure out what issue key your issue received.
+ABC-1/: A folder containing information for ticket '1' in project 'ABC'.
+ABC-1/comments/: A folder containing comments for the issue. Writing to the comment file creates a new comment. Writing to an existing comment changes it. This structure may change in the future.
+ABC-1/components: A list of components this issue applies to. Writable. Note that the component names are case sensitive, and must be match an existing component for the project.
+ABC-1/ctl: A command file. On a new issue, the only accepted command is "commit", which creates the issue with the provided parameters. For existing issues, the only accepted command is "delete". In the future, more commands may be made available for things that map poorly to files.
+ABC-1/links: Issue links in the form of "INWARD-ISSUE OUTWARD-ISSUE RELATIONSHIP", such as "ABC-1 ABC-2 Blocks". Writable.
+ABC-1/raw: The raw JSON issue object. Writable. Expects the written data to be JSON, and the write will be pushed as an issue update.
+ABC-1/status: When writing to the status file, jirafs will fetch the relevant workflow graph and trace the shortest path from the current status to the requested status, issuing the necessary transitions in order.
+ABC-1/transition: A list of currently possible transitions. Writing to the file executes the transition. See status for a more convenient way of changing issue status.
+
+For deeper structural representation under this hierarchy, cat 'structure'.
+`
+		sf := trees.NewSyntheticFile(issueKey, 0555, "jira", "jira")
+		sf.SetContent([]byte(message))
+		return sf, nil
+	} else if issueKey == "structure" {
+		message := `new/
+	 ctl
+	 description
+	 project
+	 summary
+	 type
+  ABC-1/
+	 assignee
+	 comments/
+		1/
+			author
+			updated
+			created
+			comment
+		2/
+			...
+		...
+		comment
+	 components
+	 creator
+	 ctl
+	 description
+	 key
+	 labels
+	 links
+	 priority
+	 progress
+	 project
+	 raw
+	 reporter
+	 resolution
+	 status
+	 summary
+	 transition
+	 type
+	 worklog/
+		1/
+			author
+			started
+			time
+			comment
+		...
+  ABC-2/
+	 ...
+  ...
+`
+		sf := trees.NewSyntheticFile(issueKey, 0555, "jira", "jira")
+		sf.SetContent([]byte(message))
+		return sf, nil
 	} else {
 		s := strings.Split(strings.ToUpper(issueKey), "-")
 		if len(s) != 2 {
@@ -853,7 +919,9 @@ func (aiv *AllIssuesView) List(jc *Client) ([]qp.Stat, error) {
 	}
 
 	keys = append(keys, "new")
-	return StringsToStats(keys, 0555|qp.DMDIR, "jira", "jira"), nil
+	issues := StringsToStats(keys, 0555|qp.DMDIR, "jira", "jira")
+	help := StringsToStats([]string{"help", "structure"}, 055, "jira", "jira")
+	return append(issues, help...), nil
 }
 
 type JiraView struct {
@@ -891,7 +959,7 @@ func (jw *JiraView) Walk(jc *Client, file string) (trees.File, error) {
 					jc.user = args[0]
 					jc.pass = args[1]
 				}
-				return jc.login()
+				return nil
 			},
 			"set": func(args []string) error {
 				if len(args) != 2 {
@@ -915,6 +983,88 @@ func (jw *JiraView) Walk(jc *Client, file string) (trees.File, error) {
 		return NewJiraDir(file, 0555|qp.DMDIR, "jira", "jira", jc, &AllProjectsView{})
 	case "issues":
 		return NewJiraDir(file, 0555|qp.DMDIR, "jira", "jira", jc, &AllIssuesView{})
+	case "structure":
+		message := `
+/
+	ctl
+	projects/
+	  ABC/
+		 components
+		 issuetypes
+		 issues/
+			1/ # ABC-1
+				...
+			...
+
+	  DEF/
+		 ...
+	  ...
+	issues/
+	  new/
+		 ctl
+		 description
+		 project
+		 summary
+		 type
+	  ABC-1/
+		 assignee
+		 comments/
+			1/
+				author
+				updated
+				created
+				comment
+			2/
+				...
+			...
+			comment
+		 components
+		 creator
+		 ctl
+		 description
+		 key
+		 labels
+		 links
+		 priority
+		 progress
+		 project
+		 raw
+		 reporter
+		 resolution
+		 status
+		 summary
+		 transition
+		 type
+		 worklog/
+			1/
+				author
+				started
+				time
+				comment
+			...
+	  ABC-2/
+		 ...
+	  ...
+`
+		sf := trees.NewSyntheticFile(file, 0555, "jira", "jira")
+		sf.SetContent([]byte(message))
+		return sf, nil
+	case "help":
+		message := `ctl: A global control file. It supports the following commands:
+	* search search_name JQL
+		If successful, a folder named search_name will appear at the jirafs root. ls'ing in the folder updates the search. The search does not update when simply trying to access an issue in order to avoid significant performance issues.
+	* pass-login
+		Re-issue a username/password login using the initially provided credentials.
+	* set name val
+		Sets jirafs variables. Currently, max-listing is the only variable, which expects an integer.
+projects/: Directory listing of projects.
+issues/: Directory listing of issues
+
+For deeper structural representation, cat 'structure'
+`
+		sf := trees.NewSyntheticFile(file, 0555, "jira", "jira")
+		sf.SetContent([]byte(message))
+		return sf, nil
 	default:
 		search, exists := jw.searches[file]
 
@@ -940,13 +1090,14 @@ func (jw *JiraView) List(jc *Client) ([]qp.Stat, error) {
 
 	a := StringsToStats([]string{"projects", "issues"}, 0555|qp.DMDIR, "jira", "jira")
 	b := StringsToStats([]string{"ctl"}, 0777, "jira", "jira")
-	c := StringsToStats(strs, 0777|qp.DMDIR, "jira", "jira")
-	return append(append(a, b...), c...), nil
+	c := StringsToStats([]string{"help", "structure"}, 0555, "jira", "jira")
+	d := StringsToStats(strs, 0777|qp.DMDIR, "jira", "jira")
+	return append(append(append(a, b...), c...), d...), nil
 }
 
 func (jw *JiraView) Remove(jc *Client, file string) error {
 	switch file {
-	case "ctl", "projects", "issues":
+	case "ctl", "projects", "issues", "structure", "help":
 		return trees.ErrPermissionDenied
 	default:
 		jw.searchLock.Lock()
