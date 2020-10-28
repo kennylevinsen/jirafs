@@ -8,8 +8,8 @@ import (
 	"net/url"
 
 	"github.com/howeyc/gopass"
-	"github.com/joushou/qp"
-	"github.com/joushou/qptools/fileserver"
+	"github.com/kennylevinsen/qp"
+	"github.com/kennylevinsen/qptools/fileserver"
 )
 
 var (

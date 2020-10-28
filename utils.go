@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/andygrunwald/go-jira"
-	"github.com/joushou/qp"
+	"github.com/kennylevinsen/qp"
 )
 
 type SearchResult struct {
